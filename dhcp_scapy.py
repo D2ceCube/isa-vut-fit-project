@@ -15,9 +15,11 @@ dhcp_ack = Ether(dst="ff:ff:ff:ff:ff:ff") / IP(src="0.0.0.0", dst="255.255.255.2
 # Print and send the packets
 #print("DHCP Discover packet:")
 #dhcp_discover.show()
-sendp(dhcp_discover, iface="eth0")
+#sendp(dhcp_discover, iface="eth0")
 
 #print("\nDHCP Offer packet:")
 #dhcp_offer.show()
-sendp(dhcp_offer, iface="eth0")
+#sendp(dhcp_offer, iface="eth0")
 sendp(dhcp_ack, iface="eth0")
+sendp(dhcp_ack, iface="eth0")
+

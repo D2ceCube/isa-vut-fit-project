@@ -1,3 +1,7 @@
+/**
+ * @file dhcp-stats.cpp
+ * @author Assatulla Dias 3BIT VUT FIT
+*/
 #include <iostream>
 #include <iomanip>
 #include <math.h>
@@ -16,6 +20,18 @@
 
 using namespace std;
 
+/**
+ * 
+ * TODO: Need to add syslog 
+ * TODO: Need to add function, so it works with file pcap
+ * TODO: Beatiful output of log stats
+ * TODO: Function that checks, if prefix is valid
+ * TODO: If you have yiaddr and prefixes with /24 and /22, and you need to add yiaddr to /22, not /24 idk how to do it.
+*/
+
+/**
+ * @brief structure for storing statistics about prefixes
+*/
 struct prefix_stats {
     string prefix;
     int max_hosts;
@@ -23,12 +39,18 @@ struct prefix_stats {
     double util_percent;
 };
 
+/**
+ * @brief structure for storing command line arguments
+*/
 struct options {
     char *filename;
     char *interface;
     vector<string> ip_prefixes;
 };
 
+/**
+ * @brief structure of dhcp packet, so I can work with that packet easier
+*/
 struct dhcp_packet {
     uint8_t op;
     uint8_t htype;
@@ -48,9 +70,48 @@ struct dhcp_packet {
     uint8_t options[0];
 };
 
-
+/**
+ * @brief map for storing statistics about prefixes
+*/
 map<string, prefix_stats> stats_map;
 
+/**
+ * @brief Checks, if yiaddrs is in one of the prefixes
+ * @param uint32_t yiaddr
+ * @return bool
+*/
+bool is_in_prefixes(uint32_t yiaddr) {
+    for (auto &prefix : stats_map) {
+        // Get prefix and mask
+        string prefix_str = prefix.first.substr(0, prefix.first.find('/'));
+        int mask = stoi(prefix.first.substr(prefix.first.find('/') + 1));
+
+        //cout << "prefix: " << prefix_str << endl;
+        //cout << "mask: " << mask << endl;
+
+        // Get prefix and mask in network byte order
+        uint32_t prefix_byte = ntohl(inet_addr(prefix_str.c_str()));
+        uint32_t mask_byte = 0xFFFFFFFF << (32 - mask);
+
+        // Get yiaddr in network byte order
+        uint32_t yiaddr_byte = ntohl(yiaddr);
+
+        // Check if yiaddr is in prefix
+        if ((yiaddr_byte & mask_byte) == prefix_byte) {
+            // Add this yiaddr to allocated addresses
+            prefix.second.allocated_addresses++;
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @brief Function for handling packets from pcap_loop
+ * @param u_char *user
+ * @param const struct pcap_pkthdr *packet_header
+ * @param const u_char *packet_data
+*/
 void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const u_char *packet_data) {
     // Just check if user and packet_header are not null
     if (user == nullptr || packet_header == nullptr) {
@@ -67,11 +128,41 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
         cout << "DHCPACK packet\n";
         cout << "yiaddr: " << inet_ntoa(*(struct in_addr *)&dhcp->yiaddr) << endl;
 
+        // Check if yiaddr is in one of the prefixes
+        if (is_in_prefixes(dhcp->yiaddr)) {
+            cout << "yiaddr is in one of the prefixes\n";
+        }
+        else {
+            cout << "yiaddr is not in one of the prefixes\n";
+        }
     }
+
+    // Calculate utilization
+    for (auto &prefix : stats_map) {
+        prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
+        
+    }
+
+    // Show prefix stats map
+    cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
+    for (auto &prefix : stats_map) {
+        cout << prefix.first << " " << prefix.second.max_hosts << " " << prefix.second.allocated_addresses << " ";
+        if (prefix.second.util_percent < 10) {
+            cout << setprecision(2) << prefix.second.util_percent << "%" << endl;
+        }
+        else {
+            cout << setprecision(4) << prefix.second.util_percent << "%" << endl;
+        }
+    }
+
+    
+    
 }
 
 
-
+/**
+ * @brief Function for showing all interfaces, if user enters wrong interface or no interface
+*/
 void show_all_interfaces() {
     char errbuf[PCAP_ERRBUF_SIZE];
     
@@ -90,6 +181,11 @@ void show_all_interfaces() {
     pcap_freealldevs(alldevs);
 }
 
+/**
+ * @brief Function for creating pcap handler
+ * @param char *interface
+ * @return pcap_t *
+*/
 pcap_t *create_pcap_handler(char *interface) {
     char errbuf[PCAP_ERRBUF_SIZE]; // Error buffer for pcap
     pcap_t *handle = NULL;
@@ -102,7 +198,7 @@ pcap_t *create_pcap_handler(char *interface) {
 
     // Get from interface the netmask and IP address
     if(pcap_lookupnet(interface, &srcip, &netmask, errbuf) == PCAP_ERROR) {
-        cerr << "Can't find the device: " << errbuf << endl;
+        cerr << "ERROR: Can't find the device: " << errbuf << endl;
         show_all_interfaces();
         exit(EXIT_FAILURE);
     }
@@ -110,26 +206,33 @@ pcap_t *create_pcap_handler(char *interface) {
     // Open the device for sniffing
     handle = pcap_open_live(interface, BUFSIZ, false, 1000, errbuf);
     if(handle == NULL) {
-        cerr << "Can't open the device: " << errbuf << endl;
+        cerr << "ERROR: Can't open the device: " << errbuf << endl;
         show_all_interfaces();
         exit(EXIT_FAILURE);
     }
 
     // Compile the filter
     if(pcap_compile(handle, &bpf, filter.c_str(), 0, netmask) == PCAP_ERROR) {
-        cerr << "Can't compile the filter: " << pcap_geterr(handle) << endl;
+        cerr << "ERROR: Can't compile the filter: " << pcap_geterr(handle) << endl;
         exit(EXIT_FAILURE);
     }
 
     // Apply the filter
     if(pcap_setfilter(handle, &bpf) == PCAP_ERROR) {
-        cerr << "Can't apply the filter: " << pcap_geterr(handle) << endl;
+        cerr << "ERROR: Can't apply the filter: " << pcap_geterr(handle) << endl;
         exit(EXIT_FAILURE);
     }
 
     return handle;
 }
 
+
+/** May be need to change later
+ * @brief Function for starting sniffing DHCP packets
+ * @param char *interface
+ * @param char *filename
+ * @param vector<string> ip_prefixes
+*/
 void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) {
     cout << "\n--------------------------------\n";
     cout << "This print is in start_monitor function\n";
@@ -155,13 +258,21 @@ void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) 
 
     // Start sniffing
     if (pcap_loop(handle, -1, packet_handler, NULL) == -1){
-        cerr << "Error in pcap_loop: " << pcap_geterr(handle) << endl;
+        cerr << "ERROR: pcap_loop: " << pcap_geterr(handle) << endl;
         exit(EXIT_FAILURE);
     }
 
     pcap_close(handle);
 }
 
+
+/**
+ * @brief Function for parsing command line arguments
+ * @param int argc
+ * @param char *argv[]
+ * @param options opts
+ * @return options
+*/
 options parse_args(int argc, char *argv[], options opts) {
 
     int opt;
@@ -176,25 +287,28 @@ options parse_args(int argc, char *argv[], options opts) {
                 opts.interface = optarg;
                 break;
             default:
+                cerr << "ERROR: Unknown argument\n\n";
+                cerr << "--------------------------------\n";
                 cerr << "Usage: ./dhcp-stats [-r <filename>] [-i <interface-name>] <ip-prefix> [ <ip-prefix> [ ... ] ]\n";
                 cerr << "\n-r <filename> - statistika bude vytvořena z pcap souborů";
                 cerr << "\n-i <interface> - rozhraní, na kterém může program naslouchat";
                 cerr << "\n<ip-prefix> - rozsah sítě pro které se bude generovat statistika\n";
                 cerr << "\nNapř.\n ./dhcp-stats -i eth0 192.168.1.0/24 192.168.0.0/22 172.16.32.0/24";
+                cerr << "\n--------------------------------\n";
                 exit(EXIT_FAILURE);
         }
     }
 
     // If filename and interface are not specified, exit
     if ((opts.filename == nullptr && opts.interface == nullptr) || (opts.filename != nullptr && opts.interface != nullptr)) {
-        cerr << "Expected either filename or interface\n";
+        cerr << "ERROR: Expected either filename or interface\n";
         cerr << "Or you entered both of them\n";
         exit(EXIT_FAILURE);
     }
 
     // Check if there are any prefixes
     if (optind >= argc ) {
-        cerr << "Expected at least one IP prefix\n";
+        cerr << "ERROR: Expected at least one IP prefix\n";
         exit(EXIT_FAILURE);
     }
 
@@ -205,7 +319,9 @@ options parse_args(int argc, char *argv[], options opts) {
 
     return opts;
 }
-
+/**
+ * @brief Main function
+*/
 int main (int argc, char *argv[]) {
     options opts;
     opts.filename = nullptr;
@@ -218,29 +334,13 @@ int main (int argc, char *argv[]) {
     for (auto &ip_prefix : opts.ip_prefixes) {
         prefix_stats ps;
         ps.prefix = ip_prefix;
-        ps.max_hosts = pow(2, 32 - stoi(ip_prefix.substr(ip_prefix.find('/') + 1))) - 2;
+        ps.max_hosts = pow(2, 32 - stoi(ip_prefix.substr(ip_prefix.find('/') + 1))) - 2; // -2 because of network and broadcast address
         ps.allocated_addresses = 0;
         ps.util_percent = 0.0;
         stats_map[ip_prefix] = ps;
     }
 
-    /*
-    if (opts.filename != nullptr) {
-        cout << "Interface didn't found, then it's Filename: " << opts.filename << endl;
-    } else {
-        cout << "Filename didn't found, then it's Interface: " << opts.interface << endl;
-    }
-
-    // Show prefix stats map
-    cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
-    for (auto &prefix : stats_map) {
-        cout << prefix.first << " " << prefix.second.max_hosts << " " << prefix.second.allocated_addresses << " " << prefix.second.util_percent << endl;
-    }
-    exit(EXIT_SUCCESS);
-    */  
-
-
-    // Create pcap handle
+    // Start sniffing
     start_monitor(opts.interface, opts.filename, opts.ip_prefixes);
     return 0;
 }
