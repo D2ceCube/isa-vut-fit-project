@@ -4,6 +4,7 @@
 */
 #include <iostream>
 #include <iomanip>
+#include <csignal>
 #include <math.h>
 #include <cstring>
 #include <vector>
@@ -22,9 +23,9 @@ using namespace std;
 
 /**
  * 
- * TODO: Need to add syslog 
+ * TODO: Need to add syslog -> Done
  * TODO: Need to add function, so it works with file pcap
- * TODO: Beatiful output of log stats
+ * TODO: Beatiful output of log stats using ncurses
  * TODO: Function that checks, if prefix is valid -> DONE
  * TODO: If you have yiaddr and prefixes with /24 and /22, and you need to add yiaddr to /22, not /24 idk how to do it. -> DONE
 */
@@ -74,6 +75,7 @@ struct dhcp_packet {
  * @brief map for storing statistics about prefixes
 */
 map<string, prefix_stats> stats_map;
+pcap_t *handle;
 
 /**
  * @brief Checks, if yiaddrs is in one of the prefixes
@@ -153,6 +155,8 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
                 // If util percent is more thatn 50%, log it and stdout it
                 if(prefix.second.util_percent >= 50) {
                     cout << "Prefix " << prefix.second.prefix << " exceeded 50% of allocations .\n";
+                    // Log it
+                    syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations .", prefix.second.prefix.c_str());
                 } 
             }
         }
@@ -229,6 +233,17 @@ pcap_t *create_pcap_handler(char *interface) {
     return handle;
 }
 
+/**
+ * @brief Stops to reading packets and closes the pcap handler.
+ * 
+ * @param signals
+*/
+void stop_sniffer(int signal)
+{ 
+    closelog();
+    pcap_close(handle);
+    exit(signal);
+}
 
 /** May be need to change later
  * @brief Function for starting sniffing DHCP packets
@@ -250,11 +265,15 @@ void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) 
         cout << ip_prefix << " ";
     }
     cout << "\n--------------------------------\n";
-    //------------------------
+    //------------------------  
 
+    // Signal handler
+    signal(SIGINT, stop_sniffer);
+    signal(SIGTERM, stop_sniffer);
+    signal(SIGQUIT, stop_sniffer);
 
     // Create pcap handle
-    pcap_t *handle = create_pcap_handler(interface);
+    handle = create_pcap_handler(interface);
     if (handle == NULL) {
         exit(EXIT_FAILURE);
     }
@@ -265,7 +284,9 @@ void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) 
         exit(EXIT_FAILURE);
     }
 
-    pcap_close(handle);
+    // Close the pcap handler    
+    stop_sniffer(0);
+    return;
 }
 
 
@@ -368,6 +389,9 @@ int main (int argc, char *argv[]) {
     opts.filename = nullptr;
     opts.interface = nullptr;
 
+    // Open syslog for logging
+    openlog("dhcp-stats", LOG_PID, LOG_USER);
+
     // Parse command line arguments
     opts = parse_args(argc, argv, opts);
 
@@ -383,5 +407,8 @@ int main (int argc, char *argv[]) {
 
     // Start sniffing
     start_monitor(opts.interface, opts.filename, opts.ip_prefixes);
+
+    // Close syslog
+    closelog();
     return 0;
 }
