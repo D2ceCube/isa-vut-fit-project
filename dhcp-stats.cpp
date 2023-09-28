@@ -23,11 +23,9 @@ using namespace std;
 
 /**
  * 
- * TODO: Need to add syslog -> Done
+ * TODO: Need to add syslog -> Done // Check in VM ubuntu
  * TODO: Need to add function, so it works with file pcap
  * TODO: Beatiful output of log stats using ncurses
- * TODO: Function that checks, if prefix is valid -> DONE
- * TODO: If you have yiaddr and prefixes with /24 and /22, and you need to add yiaddr to /22, not /24 idk how to do it. -> DONE
 */
 
 /**
@@ -89,9 +87,6 @@ bool is_in_prefixes(uint32_t yiaddr) {
         string prefix_str = prefix.first.substr(0, prefix.first.find('/'));
         int mask = stoi(prefix.first.substr(prefix.first.find('/') + 1));
 
-        //cout << "prefix: " << prefix_str << endl;
-        //cout << "mask: " << mask << endl;
-
         // Get prefix and mask in network byte order
         uint32_t prefix_byte = ntohl(inet_addr(prefix_str.c_str()));
         uint32_t mask_byte = 0xFFFFFFFF << (32 - mask);
@@ -122,25 +117,18 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
     }
 
     // Parse dhcp packet
-    struct dhcp_packet *dhcp = (struct dhcp_packet *) 
-                                (packet_data + sizeof(struct ether_header) + sizeof(struct ip) + sizeof(struct udphdr));
+    struct dhcp_packet *dhcp = (struct dhcp_packet *)(packet_data + sizeof(struct ether_header) + sizeof(struct ip) + sizeof(struct udphdr));
     
 
     // Check if it is DHCPACK packet
     if (dhcp->options[0] == 53 && dhcp->options[2] == 5 && dhcp->op == 2) {
-        // cout << "DHCPACK packet\n";
-        //cout << "yiaddr: " << inet_ntoa(*(struct in_addr *)&dhcp->yiaddr) << endl;
-
         // Check if yiaddr is in one of the prefixes
         if (is_in_prefixes(dhcp->yiaddr)) {
-            //cout << "yiaddr is in one of the prefixes\n";
-            
              // Show prefix stats map
             cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
             for (auto &prefix : stats_map) {
                 // Calculate utilization
                 prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
-
 
                 cout << prefix.first << " " << prefix.second.max_hosts << " " << prefix.second.allocated_addresses << " ";
                 if (prefix.second.util_percent < 10) {
@@ -152,16 +140,12 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
             }
             cout << endl;
             for (auto &prefix : stats_map) {
-                // If util percent is more thatn 50%, log it and stdout it
+                // If util percent is more thatn 50%, log it
                 if(prefix.second.util_percent >= 50) {
-                    cout << "Prefix " << prefix.second.prefix << " exceeded 50% of allocations .\n";
                     // Log it
                     syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations .", prefix.second.prefix.c_str());
                 } 
             }
-        }
-        else {
-            return;
         }
     }
 }
@@ -242,7 +226,7 @@ void stop_sniffer(int signal)
 { 
     closelog();
     pcap_close(handle);
-    exit(signal);
+    exit(EXIT_SUCCESS);
 }
 
 /** May be need to change later
@@ -252,21 +236,6 @@ void stop_sniffer(int signal)
  * @param vector<string> ip_prefixes
 */
 void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) {
-    cout << "\n--------------------------------\n";
-    cout << "This print is in start_monitor function\n";
-    // For debugging purposes
-    if (filename != nullptr) {
-        printf("Filename: %s\n", filename);
-    } else {
-        printf("Interface: %s\n", interface);
-    }
-    printf("IP prefixes: ");
-    for (auto &ip_prefix : ip_prefixes) {
-        cout << ip_prefix << " ";
-    }
-    cout << "\n--------------------------------\n";
-    //------------------------  
-
     // Signal handler
     signal(SIGINT, stop_sniffer);
     signal(SIGTERM, stop_sniffer);
@@ -407,8 +376,5 @@ int main (int argc, char *argv[]) {
 
     // Start sniffing
     start_monitor(opts.interface, opts.filename, opts.ip_prefixes);
-
-    // Close syslog
-    closelog();
     return 0;
 }
