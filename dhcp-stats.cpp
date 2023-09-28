@@ -126,38 +126,40 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
 
     // Check if it is DHCPACK packet
     if (dhcp->options[0] == 53 && dhcp->options[2] == 5 && dhcp->op == 2) {
-        cout << "DHCPACK packet\n";
-        cout << "yiaddr: " << inet_ntoa(*(struct in_addr *)&dhcp->yiaddr) << endl;
+        // cout << "DHCPACK packet\n";
+        //cout << "yiaddr: " << inet_ntoa(*(struct in_addr *)&dhcp->yiaddr) << endl;
 
         // Check if yiaddr is in one of the prefixes
         if (is_in_prefixes(dhcp->yiaddr)) {
-            cout << "yiaddr is in one of the prefixes\n";
+            //cout << "yiaddr is in one of the prefixes\n";
+            
+             // Show prefix stats map
+            cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
+            for (auto &prefix : stats_map) {
+                // Calculate utilization
+                prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
+
+
+                cout << prefix.first << " " << prefix.second.max_hosts << " " << prefix.second.allocated_addresses << " ";
+                if (prefix.second.util_percent < 10) {
+                    cout << setprecision(2) << prefix.second.util_percent << "%" << '\r' << flush << endl;
+                }
+                else {
+                    cout << setprecision(4) << prefix.second.util_percent << "%" << '\r' << flush << endl;
+                }
+            }
+            cout << endl;
+            for (auto &prefix : stats_map) {
+                // If util percent is more thatn 50%, log it and stdout it
+                if(prefix.second.util_percent >= 50) {
+                    cout << "Prefix " << prefix.second.prefix << " exceeded 50% of allocations .\n";
+                } 
+            }
         }
         else {
-            cout << "yiaddr is not in one of the prefixes\n";
+            return;
         }
     }
-
-    // Calculate utilization
-    for (auto &prefix : stats_map) {
-        prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
-        
-    }
-
-    // Show prefix stats map
-    cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
-    for (auto &prefix : stats_map) {
-        cout << prefix.first << " " << prefix.second.max_hosts << " " << prefix.second.allocated_addresses << " ";
-        if (prefix.second.util_percent < 10) {
-            cout << setprecision(2) << prefix.second.util_percent << "%" << endl;
-        }
-        else {
-            cout << setprecision(4) << prefix.second.util_percent << "%" << endl;
-        }
-    }
-
-    
-    
 }
 
 
