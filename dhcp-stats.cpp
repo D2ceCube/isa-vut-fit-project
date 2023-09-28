@@ -25,8 +25,8 @@ using namespace std;
  * TODO: Need to add syslog 
  * TODO: Need to add function, so it works with file pcap
  * TODO: Beatiful output of log stats
- * TODO: Function that checks, if prefix is valid
- * TODO: If you have yiaddr and prefixes with /24 and /22, and you need to add yiaddr to /22, not /24 idk how to do it.
+ * TODO: Function that checks, if prefix is valid -> DONE
+ * TODO: If you have yiaddr and prefixes with /24 and /22, and you need to add yiaddr to /22, not /24 idk how to do it. -> DONE
 */
 
 /**
@@ -81,6 +81,7 @@ map<string, prefix_stats> stats_map;
  * @return bool
 */
 bool is_in_prefixes(uint32_t yiaddr) {
+    bool is_in_prefix = false;
     for (auto &prefix : stats_map) {
         // Get prefix and mask
         string prefix_str = prefix.first.substr(0, prefix.first.find('/'));
@@ -100,10 +101,10 @@ bool is_in_prefixes(uint32_t yiaddr) {
         if ((yiaddr_byte & mask_byte) == prefix_byte) {
             // Add this yiaddr to allocated addresses
             prefix.second.allocated_addresses++;
-            return true;
+            is_in_prefix = true;
         }
     }
-    return false;
+    return is_in_prefix;
 }
 
 /**
@@ -194,7 +195,7 @@ pcap_t *create_pcap_handler(char *interface) {
     bpf_u_int32 netmask;
     bpf_u_int32 srcip;
     
-    string filter = "udp and (port 67 or port 68)";
+    string filter = "udp and (port 67)";
 
     // Get from interface the netmask and IP address
     if(pcap_lookupnet(interface, &srcip, &netmask, errbuf) == PCAP_ERROR) {
@@ -267,6 +268,42 @@ void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) 
 
 
 /**
+ * @brief function, that checks, if prefix is valid
+ * @param string ip_prefix
+ * @return bool
+*/
+
+void check_prefix(string ip_prefix) {
+    size_t slash_pos = ip_prefix.find('/');
+    if(slash_pos == string::npos) {
+        cout << "ERROR: IP prefix is not valid! Didn't found '/' " << ip_prefix << "\n";
+        exit(EXIT_FAILURE);
+    }
+
+    string ip_str = ip_prefix.substr(0, slash_pos);
+    string mask_str = ip_prefix.substr(slash_pos + 1);
+
+    //cout << "ip_str: " << ip_str << endl;
+    //cout << "mask_str: " << mask_str << endl;
+    
+    // Check if ip is valid
+    struct sockaddr_in sa;
+    int result = inet_pton(AF_INET, ip_str.c_str(), &(sa.sin_addr));
+    if (result != 1) { // IP is not valid
+        cout << "ERROR: IP is not valid " << ip_str << "\n";
+        exit(EXIT_FAILURE);
+    }
+    
+    // Check if the mask is valid
+    int mask = stoi(mask_str);
+    if (mask < 0 || mask > 32) {
+        cout << "ERROR: IP mask is not valid " << mask << "\n";
+        exit(EXIT_FAILURE);
+    }
+
+}
+
+/**
  * @brief Function for parsing command line arguments
  * @param int argc
  * @param char *argv[]
@@ -313,6 +350,8 @@ options parse_args(int argc, char *argv[], options opts) {
     }
 
     for (int i = optind; i < argc; i++) {
+        // Check if prefix is valid
+        check_prefix(argv[i]);
         opts.ip_prefixes.push_back(argv[i]);
     }
 
