@@ -24,9 +24,10 @@ using namespace std;
 
 /**
  * 
- * TODO: Need to add syslog -> Done // Check in VM ubuntu
+ * TODO: Need to fix syslog 
  * TODO: Need to add function, so it works with file pcap
- * TODO: Beatiful output of log stats using ncurses
+ * TODO: Found that error in eva 
+ *         ld-elf.so.1: /usr/local/lib/gcc10/libstdc++.so.6: version GLIBCXX_3.4.29 required by <./myprogram>
 */
 
 /**
@@ -118,9 +119,6 @@ void print_traffic() {
     WINDOW *win = newwin(10, 40, 0, 0);
     refresh();
         
-    // syslog init
-    setlogmask(LOG_UPTO(LOG_INFO));
-    openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
 
     scrollok(win, true);
 
@@ -403,6 +401,9 @@ int main (int argc, char *argv[]) {
     opts.filename = nullptr;
     opts.interface = nullptr;
 
+    // syslog init
+    setlogmask(LOG_UPTO(LOG_INFO));
+    openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
 
     // Parse command line arguments
     opts = parse_args(argc, argv, opts);
