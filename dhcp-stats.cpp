@@ -17,6 +17,7 @@
 #include <getopt.h>
 #include <map>
 #include <syslog.h>
+#include <ncurses.h>
 
 
 using namespace std;
@@ -105,6 +106,60 @@ bool is_in_prefixes(uint32_t yiaddr) {
 }
 
 /**
+ * @brief function prints monitor traffic stats
+ * @return void
+*/
+void print_traffic() {
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(false);
+
+    WINDOW *win = newwin(10, 40, 0, 0);
+    refresh();
+        
+    // syslog init
+    setlogmask(LOG_UPTO(LOG_INFO));
+    openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+
+    scrollok(win, true);
+
+     // Show prefix stats map
+    wprintw(win, "IP-Prefix Max-hosts Allocated addresses Utilization\n");
+    wrefresh(win);
+    int i = 0;
+    for (auto &prefix : stats_map) {
+        
+        wmove(win, i = 1, 0);
+        wclrtoeol(win);
+        
+        // Calculate utilization
+        prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
+        // If util percent is more thatn 50%, log it
+        if(prefix.second.util_percent >= 50) {
+            // Log it
+            syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+        } 
+
+
+        wprintw(win, "%s %d %d ", prefix.second.prefix.c_str(), prefix.second.max_hosts, prefix.second.allocated_addresses);
+        if (prefix.second.util_percent < 10) {
+            wprintw(win, "0%.2f%%\n", prefix.second.util_percent);
+        }
+        else {
+            wprintw(win, "%.2f%%\n", prefix.second.util_percent);
+        }
+
+        wrefresh(win);
+       
+
+        i++;
+    }
+
+    napms(300);
+}
+
+/**
  * @brief Function for handling packets from pcap_loop
  * @param u_char *user
  * @param const struct pcap_pkthdr *packet_header
@@ -124,28 +179,7 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
     if (dhcp->options[0] == 53 && dhcp->options[2] == 5 && dhcp->op == 2) {
         // Check if yiaddr is in one of the prefixes
         if (is_in_prefixes(dhcp->yiaddr)) {
-             // Show prefix stats map
-            cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
-            for (auto &prefix : stats_map) {
-                // Calculate utilization
-                prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
-
-                cout << prefix.first << " " << prefix.second.max_hosts << " " << prefix.second.allocated_addresses << " ";
-                if (prefix.second.util_percent < 10) {
-                    cout << setprecision(2) << prefix.second.util_percent << "%" << '\r' << flush << endl;
-                }
-                else {
-                    cout << setprecision(4) << prefix.second.util_percent << "%" << '\r' << flush << endl;
-                }
-            }
-            cout << endl;
-            for (auto &prefix : stats_map) {
-                // If util percent is more thatn 50%, log it
-                if(prefix.second.util_percent >= 50) {
-                    // Log it
-                    syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations .", prefix.second.prefix.c_str());
-                } 
-            }
+            print_traffic();
         }
     }
 }
@@ -224,9 +258,12 @@ pcap_t *create_pcap_handler(char *interface) {
 */
 void stop_sniffer(int signal)
 { 
-    closelog();
-    pcap_close(handle);
-    exit(EXIT_SUCCESS);
+    if (signal == SIGINT || signal == SIGTERM || signal == SIGQUIT) {
+        endwin();
+        closelog();
+        pcap_close(handle);
+        exit(EXIT_SUCCESS);
+    }
 }
 
 /** May be need to change later
@@ -235,17 +272,25 @@ void stop_sniffer(int signal)
  * @param char *filename
  * @param vector<string> ip_prefixes
 */
-void start_monitor(char *interface, char *filename, vector<string> ip_prefixes) {
+void start_monitor(char *interface, char *filename) {
     // Signal handler
     signal(SIGINT, stop_sniffer);
     signal(SIGTERM, stop_sniffer);
     signal(SIGQUIT, stop_sniffer);
 
-    // Create pcap handle
-    handle = create_pcap_handler(interface);
-    if (handle == NULL) {
-        exit(EXIT_FAILURE);
+    // check if program runs with file or interface
+    if (filename != nullptr) {
+        cout << "Progam did not implemented yet for pcap files\n";
+        exit(EXIT_SUCCESS);
     }
+    else {
+        // Create pcap handle
+        handle = create_pcap_handler(interface);
+        if (handle == NULL) {
+            exit(EXIT_FAILURE);
+        }
+    }
+    
 
     // Start sniffing
     if (pcap_loop(handle, -1, packet_handler, NULL) == -1){
@@ -358,8 +403,6 @@ int main (int argc, char *argv[]) {
     opts.filename = nullptr;
     opts.interface = nullptr;
 
-    // Open syslog for logging
-    openlog("dhcp-stats", LOG_PID, LOG_USER);
 
     // Parse command line arguments
     opts = parse_args(argc, argv, opts);
@@ -375,6 +418,6 @@ int main (int argc, char *argv[]) {
     }
 
     // Start sniffing
-    start_monitor(opts.interface, opts.filename, opts.ip_prefixes);
+    start_monitor(opts.interface, opts.filename);
     return 0;
 }

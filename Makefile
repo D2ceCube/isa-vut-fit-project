@@ -5,7 +5,7 @@
 CXX = g++
 CXXFLAGS = -Wall -Wextra -g
 
-LDFLAGS = -lpcap
+LDFLAGS = -lpcap -lncurses
 
 TARGET = dhcp-stats
 
