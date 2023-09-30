@@ -23,9 +23,7 @@
 using namespace std;
 
 /**
- * 
- * TODO: Need to fix syslog 
- * TODO: Need to add function, so it works with file pcap
+ * TODO: Need to fix syslog -> Done || It makes duplicate, but I think it's normal
 */
 
 /**
@@ -384,9 +382,6 @@ void check_prefix(string ip_prefix) {
 
     string ip_str = ip_prefix.substr(0, slash_pos);
     string mask_str = ip_prefix.substr(slash_pos + 1);
-
-    //cout << "ip_str: " << ip_str << endl;
-    //cout << "mask_str: " << mask_str << endl;
     
     // Check if ip is valid
     struct sockaddr_in sa;

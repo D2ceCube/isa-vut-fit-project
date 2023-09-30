@@ -24,7 +24,7 @@ $(TARGET): $(OBJECT)
 	$(CXX) $(CXXFLAGS) -c $< -o $@ 
 
 clean:
-	rm -f $(TARGET) $(OBJECT)
+	rm -f $(TARGET) $(OBJECT) xassat00.tar
 
 tar: 
-	tar -cf xassat00.tar *.cpp Makefile README.md
+	tar -cf xassat00.tar *.cpp Makefile manual.pdf *.1
