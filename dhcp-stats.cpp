@@ -26,8 +26,6 @@ using namespace std;
  * 
  * TODO: Need to fix syslog 
  * TODO: Need to add function, so it works with file pcap
- * TODO: Found that error in eva 
- *         ld-elf.so.1: /usr/local/lib/gcc10/libstdc++.so.6: version GLIBCXX_3.4.29 required by <./myprogram>
 */
 
 /**
@@ -38,6 +36,7 @@ struct prefix_stats {
     int max_hosts;
     int allocated_addresses;
     double util_percent;
+    bool is_logged = false;
 };
 
 /**
@@ -71,11 +70,38 @@ struct dhcp_packet {
     uint8_t options[0];
 };
 
+
+map<string, prefix_stats> stats_map; //  map for storing statistics about prefixes
+pcap_t *handle; // pcap handler
+bool in_offline = false; // If we are in offline mode
+vector<uint32_t> allocated_addresses; // Vector for storing allocated addresses
+
+
 /**
- * @brief map for storing statistics about prefixes
+ * @brief Function that checks if yiaddr is already in allocated_addresses or not
+ * @return void
 */
-map<string, prefix_stats> stats_map;
-pcap_t *handle;
+
+bool is_in_allocated_addresses(uint32_t yiaddr) {
+    bool found = false;
+
+    for(auto &addr : allocated_addresses) {
+        if (addr == yiaddr) {
+            found = true;
+            break;
+            }
+    }
+
+    if (!found) {
+        // Add yiaddr to allocated addresses
+        allocated_addresses.push_back(yiaddr);
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
 
 /**
  * @brief Checks, if yiaddrs is in one of the prefixes
@@ -83,6 +109,7 @@ pcap_t *handle;
  * @return bool
 */
 bool is_in_prefixes(uint32_t yiaddr) {
+    // One IP address can be in multiple prefixes, so I used a bool variable
     bool is_in_prefix = false;
     for (auto &prefix : stats_map) {
         // Get prefix and mask
@@ -98,11 +125,11 @@ bool is_in_prefixes(uint32_t yiaddr) {
 
         // Check if yiaddr is in prefix
         if ((yiaddr_byte & mask_byte) == prefix_byte) {
-            // Add this yiaddr to allocated addresses
-            prefix.second.allocated_addresses++;
+            prefix.second.allocated_addresses++;   
             is_in_prefix = true;
         }
     }
+
     return is_in_prefix;
 }
 
@@ -110,52 +137,58 @@ bool is_in_prefixes(uint32_t yiaddr) {
  * @brief function prints monitor traffic stats
  * @return void
 */
-void print_traffic() {
+void print_traffic_online() {
+
+    // Ncurses settings
     initscr();
-    cbreak();
+    cbreak(); 
     noecho();
     curs_set(false);
-
     WINDOW *win = newwin(10, 40, 0, 0);
     refresh();
-        
-
     scrollok(win, true);
+
 
      // Show prefix stats map
     wprintw(win, "IP-Prefix Max-hosts Allocated addresses Utilization\n");
     wrefresh(win);
-    int i = 0;
+    int row = 1;
     for (auto &prefix : stats_map) {
-        
-        wmove(win, i = 1, 0);
-        wclrtoeol(win);
-        
         // Calculate utilization
         prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
         // If util percent is more thatn 50%, log it
-        if(prefix.second.util_percent >= 50) {
+        if(prefix.second.util_percent >= 50 && !prefix.second.is_logged) {
             // Log it
             syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+            prefix.second.is_logged = true;
         } 
 
-
-        wprintw(win, "%s %d %d ", prefix.second.prefix.c_str(), prefix.second.max_hosts, prefix.second.allocated_addresses);
-        if (prefix.second.util_percent < 10) {
-            wprintw(win, "0%.2f%%\n", prefix.second.util_percent);
-        }
-        else {
-            wprintw(win, "%.2f%%\n", prefix.second.util_percent);
-        }
-
+        // Print it
+        mvwprintw(win, row, 0, "%s %d %d %.2f%%\n", prefix.second.prefix.c_str(), prefix.second.max_hosts, prefix.second.allocated_addresses, prefix.second.util_percent);
+        
+        row++;
+        // refresh windows
         wrefresh(win);
-       
+    }   
 
-        i++;
-    }
-
-    napms(300);
+    napms(150);
 }
+
+/**
+ * @brief Function that prints traffic stats from pcap file
+ * @return void
+*/
+void print_traffic_offline() {
+    // Show prefix stats map
+    cout << "IP-Prefix Max-hosts Allocated addresses Utilization" << endl;
+
+    // Print stats
+    for (auto &prefix : stats_map) {
+        printf("%s %d %d %.2f%%\n", prefix.second.prefix.c_str(), prefix.second.max_hosts, prefix.second.allocated_addresses, prefix.second.util_percent);
+    }
+}
+
+
 
 /**
  * @brief Function for handling packets from pcap_loop
@@ -164,20 +197,42 @@ void print_traffic() {
  * @param const u_char *packet_data
 */
 void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const u_char *packet_data) {
-    // Just check if user and packet_header are not null
+    // Just check if user and packet_header are not null, so -Wall and -Wextra will not say anything while compiling
     if (user == nullptr || packet_header == nullptr) {
         cout << "";
     }
 
-    // Parse dhcp packet
     struct dhcp_packet *dhcp = (struct dhcp_packet *)(packet_data + sizeof(struct ether_header) + sizeof(struct ip) + sizeof(struct udphdr));
     
 
+    // Source: https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml
     // Check if it is DHCPACK packet
+    // dhcp->op 2 => that it is reply packet
+    // dhcp->options[0] 53 => that it is DHCP message type
+    // dhcp->options[2] 5 => that Messeage type DHCPACK
     if (dhcp->options[0] == 53 && dhcp->options[2] == 5 && dhcp->op == 2) {
         // Check if yiaddr is in one of the prefixes
-        if (is_in_prefixes(dhcp->yiaddr)) {
-            print_traffic();
+        if (is_in_allocated_addresses(dhcp->yiaddr)) {
+            // Check if yiaddr is already in allocated_addresses
+            if (is_in_prefixes(dhcp->yiaddr)) { 
+                // Check if we need to print with ncurse or stdout
+                if (in_offline) {
+                    // Just calculate
+                    for (auto &prefix : stats_map) {
+                        // Calculate utilization
+                        prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
+                        // If util percent is more thatn 50%, log it
+                        if(prefix.second.util_percent >= 50 && !prefix.second.is_logged) {
+                            // Log it
+                            syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+                            prefix.second.is_logged = true;
+                        } 
+                    }
+                }
+                else {
+                    print_traffic_online();
+                }
+            } 
         }
     }
 }
@@ -209,7 +264,7 @@ void show_all_interfaces() {
  * @param char *interface
  * @return pcap_t *
 */
-pcap_t *create_pcap_handler(char *interface) {
+pcap_t *create_pcap_handler(char *interface, char *filename) {
     char errbuf[PCAP_ERRBUF_SIZE]; // Error buffer for pcap
     pcap_t *handle = NULL;
     
@@ -219,26 +274,39 @@ pcap_t *create_pcap_handler(char *interface) {
     
     string filter = "udp and (port 67)";
 
-    // Get from interface the netmask and IP address
-    if(pcap_lookupnet(interface, &srcip, &netmask, errbuf) == PCAP_ERROR) {
-        cerr << "ERROR: Can't find the device: " << errbuf << endl;
-        show_all_interfaces();
-        exit(EXIT_FAILURE);
+    if (filename != nullptr) { // Configure for pcap file
+        handle = pcap_open_offline(filename, errbuf);
+         // For pcap files we dont need to get netmask and srcip
+        if(pcap_compile(handle, &bpf, filter.c_str(), 0, 0) == PCAP_ERROR) {
+            cerr << "ERROR: Can't compile the filter: " << pcap_geterr(handle) << endl;
+            exit(EXIT_FAILURE);
+        }
+        // Turn on offline mode
+        in_offline = true;
+    }
+    else { // Configure for interface
+        // Get from interface the netmask and IP address
+        if(pcap_lookupnet(interface, &srcip, &netmask, errbuf) == PCAP_ERROR) {
+            cerr << "ERROR: Can't find the device: " << errbuf << endl;
+            show_all_interfaces();
+            exit(EXIT_FAILURE);
+        }
+
+        // Open the device for sniffing
+        handle = pcap_open_live(interface, BUFSIZ, false, 1000, errbuf);
+        if(handle == NULL) {
+            cerr << "ERROR: Can't open the device: " << errbuf << endl;
+            show_all_interfaces();
+            exit(EXIT_FAILURE);
+        }
+
+        // Compile the filter
+        if(pcap_compile(handle, &bpf, filter.c_str(), 0, netmask) == PCAP_ERROR) {
+            cerr << "ERROR: Can't compile the filter: " << pcap_geterr(handle) << endl;
+            exit(EXIT_FAILURE);
+        }
     }
 
-    // Open the device for sniffing
-    handle = pcap_open_live(interface, BUFSIZ, false, 1000, errbuf);
-    if(handle == NULL) {
-        cerr << "ERROR: Can't open the device: " << errbuf << endl;
-        show_all_interfaces();
-        exit(EXIT_FAILURE);
-    }
-
-    // Compile the filter
-    if(pcap_compile(handle, &bpf, filter.c_str(), 0, netmask) == PCAP_ERROR) {
-        cerr << "ERROR: Can't compile the filter: " << pcap_geterr(handle) << endl;
-        exit(EXIT_FAILURE);
-    }
 
     // Apply the filter
     if(pcap_setfilter(handle, &bpf) == PCAP_ERROR) {
@@ -262,6 +330,12 @@ void stop_sniffer(int signal)
         pcap_close(handle);
         exit(EXIT_SUCCESS);
     }
+    else if (in_offline) {
+        print_traffic_offline();
+        closelog();
+        pcap_close(handle);
+        exit(EXIT_SUCCESS);
+    }
 }
 
 /** May be need to change later
@@ -276,17 +350,10 @@ void start_monitor(char *interface, char *filename) {
     signal(SIGTERM, stop_sniffer);
     signal(SIGQUIT, stop_sniffer);
 
-    // check if program runs with file or interface
-    if (filename != nullptr) {
-        cout << "Progam did not implemented yet for pcap files\n";
-        exit(EXIT_SUCCESS);
-    }
-    else {
-        // Create pcap handle
-        handle = create_pcap_handler(interface);
-        if (handle == NULL) {
-            exit(EXIT_FAILURE);
-        }
+    handle = create_pcap_handler(interface, filename);
+    if (handle == NULL) {
+        cerr << "ERROR: Can't create pcap handler\n";
+        exit(EXIT_FAILURE);
     }
     
 
