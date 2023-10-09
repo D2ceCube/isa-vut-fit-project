@@ -19,7 +19,6 @@
 #include <syslog.h>
 #include <ncurses.h>
 
-
 using namespace std;
 
 /**
@@ -87,7 +86,7 @@ bool is_in_allocated_addresses(uint32_t yiaddr) {
         if (addr == yiaddr) {
             found = true;
             break;
-            }
+        }
     }
 
     if (!found) {
@@ -154,11 +153,16 @@ void print_traffic_online() {
     for (auto &prefix : stats_map) {
         // Calculate utilization
         prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
+        
+        // FIXME syslog makes duplicate
         // If util percent is more thatn 50%, log it
-        if(prefix.second.util_percent >= 50 && !prefix.second.is_logged) {
-            // Log it
-            syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+        if((prefix.second.util_percent >= 50) && (!prefix.second.is_logged)) {
             prefix.second.is_logged = true;
+            // Log it
+            setlogmask(LOG_UPTO(LOG_NOTICE));
+            openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+            syslog(LOG_NOTICE, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+            closelog();
         } 
 
         // Print it
@@ -167,9 +171,8 @@ void print_traffic_online() {
         row++;
         // refresh windows
         wrefresh(win);
-    }   
-
-    napms(150);
+    }
+    napms(300);
 }
 
 /**
@@ -221,9 +224,11 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
                         prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
                         // If util percent is more thatn 50%, log it
                         if(prefix.second.util_percent >= 50 && !prefix.second.is_logged) {
-                            // Log it
-                            syslog(LOG_INFO, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+                            setlogmask(LOG_UPTO(LOG_NOTICE));
+                            openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+                            syslog(LOG_NOTICE, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
                             prefix.second.is_logged = true;
+                            closelog();
                         } 
                     }
                 }
@@ -324,13 +329,11 @@ void stop_sniffer(int signal)
 { 
     if (signal == SIGINT || signal == SIGTERM || signal == SIGQUIT) {
         endwin();
-        closelog();
         pcap_close(handle);
         exit(EXIT_SUCCESS);
     }
     else if (in_offline) {
-        print_traffic_offline();
-        closelog();
+        print_traffic_offline();;
         pcap_close(handle);
         exit(EXIT_SUCCESS);
     }
@@ -463,9 +466,7 @@ int main (int argc, char *argv[]) {
     opts.filename = nullptr;
     opts.interface = nullptr;
 
-    // syslog init
-    setlogmask(LOG_UPTO(LOG_INFO));
-    openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+    
 
     // Parse command line arguments
     opts = parse_args(argc, argv, opts);

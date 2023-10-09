@@ -1,0 +1,36 @@
+.TH dhcp-stats 1
+.SH NAME
+dhcp-stats \- show online/offline statistics of IP prefix from DHCP traffic.
+.SH SYNOPSIS
+.B dhcp-stats
+[\fB\-r\fR \fIfilename\fR]
+[\fB\-i\fR \fIinterface-name\fR]
+<ip-prefix>
+[<ip-prefix> ...]
+.SH DESCRIPTION
+.B dhcp-stats
+analyzes DHCP traffic in real or offline mode, based on which it displays statistics of network prefix load.
+.SH OPTIONS
+.TP
+.BR \-r \t\fIfilename\fR
+Set the program to analyze in offline mode.
+Reads .cap and .pcap files.
+.TP
+.BR \-i \t\fIinterface-name\fR
+Set the program to analyze in online mode.
+It starts to listen on <interface-name> and will show statistics in real time.
+.TP
+.BR <ip-prefix> \t[<ip-prefix> ...]
+IP prefixes that need to be analyzez.
+At least one network prefix must be specified.
+
+.SH EXAMPLES
+.B dhcp-stats
+\-r \fIsome_dhcp_traffic.pcap\fR 192.168.0.0/24 192.168.10/24
+
+.B dhcp-stats
+\-i \fIeth0\fR 192.168.0.0/20 172.16.0.0/16
+
+.SH AUTHOR
+Written by \fBDias Assatulla\fR.
+VUT FIT Brno, 2023
