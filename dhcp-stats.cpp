@@ -33,7 +33,7 @@ struct prefix_stats {
     int max_hosts;
     int allocated_addresses;
     double util_percent;
-    bool is_logged = false;
+    bool is_logged;
 };
 
 /**
@@ -478,6 +478,7 @@ int main (int argc, char *argv[]) {
         ps.max_hosts = pow(2, 32 - stoi(ip_prefix.substr(ip_prefix.find('/') + 1))) - 2; // -2 because of network and broadcast address
         ps.allocated_addresses = 0;
         ps.util_percent = 0.0;
+        ps.is_logged = false;
         stats_map[ip_prefix] = ps;
     }
 
