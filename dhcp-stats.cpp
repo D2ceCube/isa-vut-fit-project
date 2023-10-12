@@ -120,10 +120,17 @@ bool is_in_prefixes(uint32_t yiaddr) {
         // Get yiaddr in network byte order
         uint32_t yiaddr_byte = ntohl(yiaddr);
 
-        // Check if yiaddr is in prefix
-        if ((yiaddr_byte & mask_byte) == prefix_byte) {
-            prefix.second.allocated_addresses++;   
-            is_in_prefix = true;
+        // Check if allocated addresses is more than max hosts
+        if(prefix.second.allocated_addresses >= prefix.second.max_hosts) {
+            // Stop counting allocated addresses
+            continue;
+        }
+        else {
+            // Check if yiaddr is in prefix
+            if ((yiaddr_byte & mask_byte) == prefix_byte) {
+                prefix.second.allocated_addresses++;   
+                is_in_prefix = true;        
+            }
         }
     }
 
@@ -172,7 +179,7 @@ void print_traffic_online() {
         // refresh windows
         wrefresh(win);
     }
-    napms(300);
+    napms(150);
 }
 
 /**
