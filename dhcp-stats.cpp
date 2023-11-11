@@ -22,10 +22,6 @@
 using namespace std;
 
 /**
- * TODO: Need to fix syslog -> Done || It makes duplicate, but I think it's normal
-*/
-
-/**
  * @brief structure for storing statistics about prefixes
 */
 struct prefix_stats {
@@ -64,7 +60,7 @@ struct dhcp_packet {
     uint8_t sname[64];
     uint8_t file[128];
     uint32_t magic_cookie;
-    uint8_t options[0];
+    uint8_t options[]; 
 };
 
 
@@ -217,37 +213,51 @@ void packet_handler(u_char *user, const struct pcap_pkthdr *packet_header, const
     struct dhcp_packet *dhcp = (struct dhcp_packet *)(packet_data + sizeof(struct ether_header) + sizeof(struct ip) + sizeof(struct udphdr));
     
 
+    uint8_t *options = dhcp->options;
     // Source: https://www.iana.org/assignments/bootp-dhcp-parameters/bootp-dhcp-parameters.xhtml
-    // Check if it is DHCPACK packet
-    // dhcp->op 2 => that it is reply packet
-    // dhcp->options[0] 53 => that it is DHCP message type
-    // dhcp->options[2] 5 => that Messeage type DHCPACK
-    if (dhcp->options[0] == 53 && dhcp->options[2] == 5 && dhcp->op == 2) {
-        // Check if yiaddr is in one of the prefixes
-        if (is_in_allocated_addresses(dhcp->yiaddr)) {
-            // Check if yiaddr is already in allocated_addresses
-            if (is_in_prefixes(dhcp->yiaddr)) { 
-                // Check if we need to print with ncurse or stdout
-                if (in_offline) {
-                    // Just calculate
-                    for (auto &prefix : stats_map) {
-                        // Calculate utilization
-                        prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
-                        // If util percent is more thatn 50%, log it
-                        if(prefix.second.util_percent >= 50 && !prefix.second.is_logged) {
-                            setlogmask(LOG_UPTO(LOG_NOTICE));
-                            openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
-                            syslog(LOG_NOTICE, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
-                            prefix.second.is_logged = true;
-                            closelog();
-                        } 
-                    }
+    // DHCP options field does not have to be sorted, e.g option 53 goes firtst and then others, they can be in any order
+    while(*options != 0xFF){ // 255 is max value of options
+        uint8_t option_code = *options;
+        uint8_t option_len = *(options + 1);
+
+        // Check if it is DHCPACK packet 
+        // 53 => that it is DHCP message type
+        // 1 => that it is 1 byte long
+        if (option_code == 53 && option_len == 1) {
+            uint8_t message_type = *(options + 2);
+
+            // 5 => that Messeage type DHCPACK
+            // 2 => that it is reply packet
+            if (message_type == 5 && dhcp->op == 2) {
+                // Check if yiaddr is in one of the prefixes
+                if (is_in_allocated_addresses(dhcp->yiaddr)) {
+                    // Check if yiaddr is already in allocated_addresses
+                    if (is_in_prefixes(dhcp->yiaddr)) { 
+                        // Check if we need to print with ncurse or stdout
+                        if (in_offline) {
+                            // Just calculate
+                            for (auto &prefix : stats_map) {
+                                // Calculate utilization
+                                prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
+                                // If util percent is more thatn 50%, log it
+                                if(prefix.second.util_percent >= 50 && !prefix.second.is_logged) {
+                                    setlogmask(LOG_UPTO(LOG_NOTICE));
+                                    openlog("dhcp-stats", LOG_CONS | LOG_PID | LOG_NDELAY, LOG_LOCAL1);
+                                    syslog(LOG_NOTICE, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+                                    prefix.second.is_logged = true;
+                                    closelog();
+                                } 
+                            }
+                        }
+                        else {
+                            print_traffic_online();
+                        }
+                    } 
                 }
-                else {
-                    print_traffic_online();
-                }
-            } 
+            }
         }
+        // Go to next option
+        options += option_len + 2;
     }
 }
 
