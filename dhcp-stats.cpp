@@ -152,7 +152,6 @@ void print_traffic_online() {
     refresh();
     scrollok(win, true);
 
-
      // Show prefix stats map
     wprintw(win, "IP-Prefix Max-hosts Allocated addresses Utilization\n");
     wrefresh(win);
@@ -161,7 +160,6 @@ void print_traffic_online() {
         // Calculate utilization
         prefix.second.util_percent = (double)prefix.second.allocated_addresses / (double)prefix.second.max_hosts * 100;
         
-        // FIXME syslog makes duplicate
         // If util percent is more thatn 50%, log it
         if((prefix.second.util_percent >= 50) && (!prefix.second.is_logged)) {
             prefix.second.is_logged = true;
@@ -486,8 +484,6 @@ int main (int argc, char *argv[]) {
     options opts;
     opts.filename = nullptr;
     opts.interface = nullptr;
-
-    
 
     // Parse command line arguments
     opts = parse_args(argc, argv, opts);
