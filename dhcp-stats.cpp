@@ -148,7 +148,7 @@ void print_traffic_online() {
     cbreak(); 
     noecho();
     curs_set(false);
-    WINDOW *win = newwin(10, 40, 0, 0);
+    WINDOW *win = newwin(10, 70, 0, 0);
     refresh();
     scrollok(win, true);
 
@@ -172,11 +172,24 @@ void print_traffic_online() {
 
         // Print it
         mvwprintw(win, row, 0, "%s %d %d %.2f%%\n", prefix.second.prefix.c_str(), prefix.second.max_hosts, prefix.second.allocated_addresses, prefix.second.util_percent);
-        
         row++;
+
         // refresh windows
         wrefresh(win);
     }
+
+    row += 2; // for more space to make it readable
+    // Print if utilization is more than 50% in window
+    for (auto &prefix : stats_map) {
+        if (prefix.second.util_percent >= 50) {
+            mvwprintw(win, row, 0, "Prefix %s exceeded 50%% of allocations.", prefix.second.prefix.c_str());
+            row++;
+            // refresh windows
+            wrefresh(win);
+        }
+    }
+
+    // Wait 150ms
     napms(150);
 }
 
@@ -191,6 +204,14 @@ void print_traffic_offline() {
     // Print stats
     for (auto &prefix : stats_map) {
         printf("%s %d %d %.2f%%\n", prefix.second.prefix.c_str(), prefix.second.max_hosts, prefix.second.allocated_addresses, prefix.second.util_percent);
+    }
+
+    printf("\n");
+    // Now print if utilization is more than 50%
+    for (auto &prefix : stats_map) {
+        if (prefix.second.util_percent >= 50) {
+            printf("Prefix %s exceeded 50%% of allocations.\n", prefix.second.prefix.c_str());
+        }
     }
 }
 
